@@ -2,11 +2,9 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuild
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
-// --------------------------------------------------------------------------------
-// *** ADDED: Import Express for the Render Health Check ***
-// --------------------------------------------------------------------------------
-const express = require('express'); 
-// ******************************************************
+// *** Render Health Check Setup ***
+const express = require('express');
+// **********************************
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const mongo = new MongoClient(process.env.MONGO_URI);
@@ -35,11 +33,32 @@ function validateMatchInput(kills, roundsWon, roundsLost) {
   return null;
 }
 
+// *** NEW: Function to calculate player stats for the /stats command ***
+function calculatePlayerStats(player) {
+    const kills = player.totalKills || 0;
+    const wins = player.totalWins || 0;
+    // New field added to database object (see updatePlayerStats below)
+    const matches = player.totalMatchesPlayed || 0; 
+    const sr = player.sr || 0;
+    
+    // Kills per Match (KPM) is used as a proxy since we don't track deaths (K/D).
+    const kpm = matches > 0 ? (kills / matches).toFixed(2) : 'N/A';
+    
+    // Win Rate (Wins / Total Matches Played)
+    const winRate = matches > 0 ? `${((wins / matches) * 100).toFixed(2)}%` : 'N/A';
+
+    return { sr: sr.toFixed(2), kills, wins, kpm, winRate, matches };
+}
+// *******************************************************************
+
 async function updatePlayerStats(playerId, kills, roundsWon, roundsLost, winner, seasonId) {
   const srChange = calculateSRChange(kills, roundsWon, roundsLost);
   const isWinner = winner === playerId;
   const deltaKills = kills;
   const deltaWins = isWinner ? 1 : 0;
+  // *** MODIFIED: Track total matches played ***
+  const deltaMatches = 1; 
+  // ********************************************
 
   const player = await db.collection('players').findOne({ discordId: playerId }) || {};
   const updated = {
@@ -47,6 +66,9 @@ async function updatePlayerStats(playerId, kills, roundsWon, roundsLost, winner,
     sr: (player.sr || 0) + srChange,
     totalKills: (player.totalKills || 0) + deltaKills,
     totalWins: (player.totalWins || 0) + deltaWins,
+    // *** MODIFIED: Save total matches played ***
+    totalMatchesPlayed: (player.totalMatchesPlayed || 0) + deltaMatches,
+    // *******************************************
     seasonalStats: {
       ...(player.seasonalStats || {}),
       [seasonId]: {
@@ -83,6 +105,18 @@ async function postLeaderboard(channelId, statKey, seasonId = null) {
 }
 
 const commands = [
+// *** NEW: /register command definition ***
+  new SlashCommandBuilder()
+    .setName('register')
+    .setDescription('Join the ranking system and set up your profile.'),
+
+// *** NEW: /stats command definition ***
+  new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('Display a player\'s personal skirmish stats.')
+    .addUserOption(o => o.setName('target').setDescription('The player to check stats for (defaults to you)').setRequired(false)),
+// ***************************************
+
   new SlashCommandBuilder()
     .setName('report_match')
     .setDescription('Admin-only: report a completed Skirmish match')
@@ -125,6 +159,64 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName } = interaction;
 
+// *** NEW: /register command handler ***
+  if (commandName === 'register') {
+    const playerId = interaction.user.id;
+    const initialSR = 1000;
+
+    const existingPlayer = await db.collection('players').findOne({ discordId: playerId });
+
+    if (existingPlayer) {
+      return interaction.reply({ content: `You are already registered! Your current SR is ${existingPlayer.sr.toFixed(2)}.`, ephemeral: true });
+    }
+
+    const newPlayer = {
+      discordId: playerId,
+      sr: initialSR,
+      totalKills: 0,
+      totalWins: 0,
+      totalMatchesPlayed: 0, // Initialize new field
+      seasonalStats: {
+        current: { sr: 0, kills: 0, wins: 0 } 
+      }
+    };
+
+    await db.collection('players').insertOne(newPlayer);
+    
+    await interaction.reply({ content: `Welcome, <@${playerId}>! You have been registered with a starting SR of ${initialSR}. Good luck!`, ephemeral: true });
+  }
+// **************************************
+  
+// *** NEW: /stats command handler ***
+  if (commandName === 'stats') {
+    const targetUser = interaction.options.getUser('target') || interaction.user;
+    const playerId = targetUser.id;
+
+    const player = await db.collection('players').findOne({ discordId: playerId });
+
+    if (!player) {
+        return interaction.reply({ content: `<@${targetUser.id}> is not registered in the ranking system. They can register using \`/register\`.`, ephemeral: true });
+    }
+
+    const stats = calculatePlayerStats(player);
+    
+    const embed = new EmbedBuilder()
+        .setTitle(`${targetUser.username}'s Skirmish Stats`)
+        .setColor('#87CEEB')
+        .addFields(
+            { name: 'SR Rating 🏆', value: stats.sr, inline: true },
+            { name: 'Total Kills 🔪', value: stats.kills.toString(), inline: true },
+            { name: 'Total Wins 🥇', value: stats.wins.toString(), inline: true },
+            { name: 'Total Matches', value: stats.matches.toString(), inline: true },
+            { name: 'Win Rate 📊', value: stats.winRate, inline: true },
+            { name: 'Kills/Match (KPM) 🎯', value: stats.kpm, inline: true }
+        )
+        .setFooter({ text: 'Note: KPM is used as a K/D proxy since deaths are not tracked.' });
+
+    await interaction.reply({ embeds: [embed] });
+  }
+// ***********************************
+
   if (commandName === 'report_match') {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild))
       return interaction.reply({ content: 'You do not have permission.', ephemeral: true });
@@ -143,6 +235,7 @@ client.on('interactionCreate', async interaction => {
     if (validation2) return interaction.reply({ content: `Player2 input error: ${validation2}`, ephemeral: true });
 
     const winner = rounds1 > rounds2 ? player1 : player2;
+    // The totalMatchesPlayed field is incremented inside this function:
     const srChange1 = await updatePlayerStats(player1, kills1, rounds1, rounds2, winner, seasonId);
     const srChange2 = await updatePlayerStats(player2, kills2, rounds2, rounds1, winner, seasonId);
 
@@ -191,20 +284,15 @@ client.on('interactionCreate', async interaction => {
 client.login(process.env.BOT_TOKEN);
 
 
-// --------------------------------------------------------------------------------
-// *** ADDED: Express Server for Render Health Check ***
-// --------------------------------------------------------------------------------
+// *** Render Health Check Server ***
 const app = express();
-const PORT = process.env.PORT || 5000; // Use the PORT provided by Render, or a fallback
+const PORT = process.env.PORT || 5000;
 
-// A simple route that Render's health check can ping
 app.get('/', (req, res) => {
-    // This response confirms the Node process is running.
     res.send('Discord Bot is running and healthy.');
 });
 
-// Start the lightweight server to listen on Render's required PORT (0.0.0.0 is implicit)
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Render health check server listening on port ${PORT}`);
 });
-// ********************************************************************************
+// **********************************
