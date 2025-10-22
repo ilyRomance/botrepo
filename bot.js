@@ -6,21 +6,18 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const mongo = new MongoClient(process.env.MONGO_URI);
 let db;
 
+const port = process.env.PORT || 3000;
+
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
+
+
 mongo.connect().then(() => {
   db = mongo.db('skirmish');
   console.log('Connected to MongoDB');
 });
 
-// 1. Get the port number from the environment variable (provided by Render)
-//    OR use 3000 if running locally (process.env.PORT will be undefined)
-const port = process.env.PORT || 3000;
-
-// 2. Start the Express server and bind it to the calculated port
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
-});
-
-// Note: Express automatically binds to 0.0.0.0 when you use app.listen(port)
 
 function calculateSRChange(kills, roundsWon, roundsLost) {
   const roundsTotal = roundsWon + roundsLost;
