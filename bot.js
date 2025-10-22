@@ -1,6 +1,12 @@
+// bot.js
+
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
+
+// *** ADDED: Import Express for the Render Health Check ***
+const express = require('express'); 
+// ******************************************************
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const mongo = new MongoClient(process.env.MONGO_URI);
@@ -10,7 +16,6 @@ mongo.connect().then(() => {
   db = mongo.db('skirmish');
   console.log('Connected to MongoDB');
 });
-
 
 function calculateSRChange(kills, roundsWon, roundsLost) {
   const roundsTotal = roundsWon + roundsLost;
@@ -184,3 +189,21 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(process.env.BOT_TOKEN);
+
+
+// --------------------------------------------------------------------------------
+// *** ADDED: Express Server for Render Health Check ***
+// --------------------------------------------------------------------------------
+const app = express();
+const PORT = process.env.PORT || 5000; // Use the PORT provided by Render, or a fallback
+
+// A simple route that Render's health check can ping
+app.get('/', (req, res) => {
+    res.send('Discord Bot is running and healthy.');
+});
+
+// Start the lightweight server to listen on Render's required PORT
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Render health check server listening on port ${PORT}`);
+});
+// --------------------------------------------------------------------------------
