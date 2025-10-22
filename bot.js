@@ -128,4 +128,4 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName } = interaction;
 
-  if (commandName === 'report_match') {
+  if (commandName === 'report_match') {}
