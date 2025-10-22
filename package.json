@@ -1,0 +1,14 @@
+{
+  "name": "valorant-skirmish-bot",
+  "version": "1.0.0",
+  "description": "A Discord bot for managing Valorant 1v1 Skirmish league matches with SR ranking system.",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.0",
+    "dotenv": "^16.4.5",
+    "mongodb": "^6.8.0"
+  }
+}
