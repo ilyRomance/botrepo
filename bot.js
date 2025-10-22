@@ -1,15 +1,12 @@
-// bot.js
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { MongoClient } = require('mongodb');
+require('dotenv').config();
 
 // --------------------------------------------------------------------------------
 // *** ADDED: Import Express for the Render Health Check ***
 // --------------------------------------------------------------------------------
 const express = require('express'); 
 // ******************************************************
-
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, PermissionsBitField } = require('discord.js');
-const { MongoClient } = require('mongodb');
-require('dotenv').config();
-
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const mongo = new MongoClient(process.env.MONGO_URI);
@@ -128,4 +125,86 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName } = interaction;
 
-  if (commandName === 'report_match') {}
+  if (commandName === 'report_match') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild))
+      return interaction.reply({ content: 'You do not have permission.', ephemeral: true });
+
+    const player1 = interaction.options.getUser('player1').id;
+    const player2 = interaction.options.getUser('player2').id;
+    const kills1 = interaction.options.getNumber('kills1');
+    const kills2 = interaction.options.getNumber('kills2');
+    const rounds1 = interaction.options.getNumber('rounds1');
+    const rounds2 = interaction.options.getNumber('rounds2');
+    const seasonId = interaction.options.getString('season') || 'current';
+
+    const validation1 = validateMatchInput(kills1, rounds1, rounds2);
+    const validation2 = validateMatchInput(kills2, rounds2, rounds1);
+    if (validation1) return interaction.reply({ content: `Player1 input error: ${validation1}`, ephemeral: true });
+    if (validation2) return interaction.reply({ content: `Player2 input error: ${validation2}`, ephemeral: true });
+
+    const winner = rounds1 > rounds2 ? player1 : player2;
+    const srChange1 = await updatePlayerStats(player1, kills1, rounds1, rounds2, winner, seasonId);
+    const srChange2 = await updatePlayerStats(player2, kills2, rounds2, rounds1, winner, seasonId);
+
+    const embed = new EmbedBuilder()
+      .setTitle('Match Reported')
+      .setDescription(`<@${player1}> SR: ${srChange1.toFixed(2)} | <@${player2}> SR: ${srChange2.toFixed(2)}`)
+      .addFields(
+        { name: 'Winner', value: `<@${winner}>`, inline: true },
+        { name: 'Season', value: seasonId, inline: true }
+      )
+      .setColor('#00FF00');
+
+    await interaction.reply({ embeds: [embed] });
+
+    if (process.env.LEADERBOARD_CHANNELS) {
+      const leaderboardChannels = process.env.LEADERBOARD_CHANNELS.split(',');
+      for (const entry of leaderboardChannels) {
+        const [channelId, statType] = entry.split(':');
+        await postLeaderboard(channelId, statType, seasonId);
+      }
+    }
+  }
+
+  if (commandName === 'reset_season') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild))
+      return interaction.reply({ content: 'You do not have permission.', ephemeral: true });
+    const seasonId = interaction.options.getString('season') || 'current';
+    await db.collection('players').updateMany({}, { $set: { [`seasonalStats.${seasonId}`]: { sr: 0, kills: 0, wins: 0 } } });
+    await interaction.reply(`Season ${seasonId} has been reset.`);
+  }
+
+  if (commandName === 'leaderboard') {
+    const type = interaction.options.getString('type');
+    const seasonId = interaction.options.getString('season') || null;
+    const top = await getLeaderboard(type, seasonId);
+    let description = '';
+    top.forEach((p, i) => {
+      const value = seasonId ? p.seasonalStats?.[seasonId]?.[type] || 0 : p[type] || 0;
+      description += `${i + 1}. <@${p.discordId}> — ${value}\n`;
+    });
+    const embed = new EmbedBuilder().setTitle(`Leaderboard: ${type}`).setDescription(description).setColor('#FFD700');
+    await interaction.reply({ embeds: [embed] });
+  }
+});
+
+client.login(process.env.BOT_TOKEN);
+
+
+// --------------------------------------------------------------------------------
+// *** ADDED: Express Server for Render Health Check ***
+// --------------------------------------------------------------------------------
+const app = express();
+const PORT = process.env.PORT || 5000; // Use the PORT provided by Render, or a fallback
+
+// A simple route that Render's health check can ping
+app.get('/', (req, res) => {
+    // This response confirms the Node process is running.
+    res.send('Discord Bot is running and healthy.');
+});
+
+// Start the lightweight server to listen on Render's required PORT (0.0.0.0 is implicit)
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Render health check server listening on port ${PORT}`);
+});
+// ********************************************************************************
