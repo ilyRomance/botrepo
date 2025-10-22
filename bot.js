@@ -6,13 +6,6 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const mongo = new MongoClient(process.env.MONGO_URI);
 let db;
 
-const port = process.env.PORT || 3000;
-
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
-});
-
-
 mongo.connect().then(() => {
   db = mongo.db('skirmish');
   console.log('Connected to MongoDB');
