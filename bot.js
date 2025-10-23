@@ -127,17 +127,7 @@ const commands = [
     .addNumberOption(o => o.setName('rounds1').setDescription('Rounds won by player1').setRequired(true))
     .addNumberOption(o => o.setName('rounds2').setDescription('Rounds won by player2').setRequired(true))
     .addStringOption(o => o.setName('season').setDescription('Season ID').setRequired(false)),
-  new SlashCommandBuilder()
-    .setName('leaderboard')
-    .setDescription('Display a leaderboard')
-    .addStringOption(o =>
-      o.setName('type').setDescription('Type (sr, kills, wins)').setRequired(true)
-        .addChoices(
-          { name: 'SR', value: 'sr' },
-          { name: 'Kills', value: 'totalKills' },
-          { name: 'Wins', value: 'totalWins' }
-        ))
-    .addStringOption(o => o.setName('season').setDescription('Season ID').setRequired(false)),
+ 
   new SlashCommandBuilder()
     .setName('reset_season')
     .setDescription('Admin-only: reset a season')
